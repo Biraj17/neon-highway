@@ -166,6 +166,63 @@
   }
   function stopEngine() { if (engineNode) { try { engineNode.stop(); } catch(e){} engineNode = null; engineGain = null; } }
   function setEngine(spd) { if (engineGain) { engineNode.frequency.value = 55 + spd * 6; engineGain.gain.value = soundOn ? 0.05 : 0; } }
+
+  // ---------- BACKGROUND MUSIC (procedural synthwave loop, no files) ----------
+  let musicGain = null, musicTimer = null, musicStep = 0, nextNoteT = 0;
+  const BPM = 112, STEP = 60 / BPM / 4;              // 16th-note length in seconds
+  const mtof = m => 440 * Math.pow(2, (m - 69) / 12); // MIDI note -> frequency
+  const CHORDS = [ [57,60,64], [53,57,60], [60,64,67], [55,59,62] ]; // Am · F · C · G
+  const BASS   = [ 45, 41, 48, 43 ];                                  // A2 · F2 · C3 · G2
+  function mvoice(freq, t, dur, type, vol, cutoff) {
+    if (!AC || !musicGain) return;
+    const o = AC.createOscillator(), g = AC.createGain(), f = AC.createBiquadFilter();
+    o.type = type; o.frequency.value = freq;
+    f.type = 'lowpass'; f.frequency.value = cutoff || 2000;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(f); f.connect(g); g.connect(musicGain);
+    o.start(t); o.stop(t + dur + 0.03);
+  }
+  function mdrum(t, kind) {
+    if (!AC || !musicGain) return;
+    if (kind === 'kick') {
+      const o = AC.createOscillator(), g = AC.createGain();
+      o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+      g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+      o.connect(g); g.connect(musicGain); o.start(t); o.stop(t + 0.18);
+    } else {
+      const dur = kind === 'snare' ? 0.14 : 0.04;
+      const n = Math.floor(AC.sampleRate * dur), buf = AC.createBuffer(1, n, AC.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) d[i] = (Math.random()*2-1) * (1 - i/n);
+      const src = AC.createBufferSource(); src.buffer = buf;
+      const f = AC.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = kind === 'snare' ? 1200 : 6000;
+      const g = AC.createGain(); g.gain.value = kind === 'snare' ? 0.2 : 0.1;
+      src.connect(f); f.connect(g); g.connect(musicGain); src.start(t);
+    }
+  }
+  function scheduleStep(t, s) {
+    const chord = Math.floor(s / 16) % 4, inBar = s % 16;
+    if (inBar % 8 === 0) mvoice(mtof(BASS[chord]), t, STEP*7, 'sawtooth', 0.16, 480);       // bassline
+    if (inBar % 2 === 0) {                                                                   // arpeggio lead
+      const tones = CHORDS[chord];
+      mvoice(mtof(tones[(inBar/2) % 3] + 12), t, STEP*1.6, 'square', 0.045, 2600);
+    }
+    if (inBar === 0 || inBar === 8) mdrum(t, 'kick');
+    if (inBar === 4 || inBar === 12) mdrum(t, 'snare');
+    if (inBar % 2 === 0) mdrum(t, 'hat');
+  }
+  function musicScheduler() {
+    if (!AC) return;
+    while (nextNoteT < AC.currentTime + 0.12) { scheduleStep(nextNoteT, musicStep); nextNoteT += STEP; musicStep++; }
+  }
+  function startMusic() {
+    if (!AC || musicTimer) return;
+    if (!musicGain) { musicGain = AC.createGain(); musicGain.gain.value = 0.45; musicGain.connect(master); }
+    musicStep = 0; nextNoteT = AC.currentTime + 0.06;
+    musicTimer = setInterval(musicScheduler, 25);
+  }
+  function stopMusic() { if (musicTimer) { clearInterval(musicTimer); musicTimer = null; } }
   muteBtn.addEventListener('click', () => {
     soundOn = !soundOn;
     muteBtn.textContent = soundOn ? '🔊' : '🔇';
@@ -227,6 +284,7 @@
     hud.classList.remove('hidden');
     muteBtn.classList.remove('hidden');
     startEngine();
+    startMusic();
   }
 
   function loseLife() {
@@ -238,7 +296,7 @@
 
   function gameOver() {
     state = 'over';
-    stopEngine(); sfxOver();
+    stopEngine(); stopMusic(); sfxOver();
     muteBtn.classList.add('hidden');
     if (score > best) { best = score; localStorage.setItem('nh_best', String(best)); }
     document.getElementById('finalScore').textContent = score;
