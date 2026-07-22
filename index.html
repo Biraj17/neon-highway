@@ -6,7 +6,8 @@
     background:radial-gradient(circle at 50% 20%, #0c1236 0%, #04060e 72%); }
   canvas { display:block; touch-action:none; }
   .overlay { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
-    text-align:center; color:#eaf6ff; padding:24px; z-index:5; background:rgba(4,6,14,.6); backdrop-filter:blur(2px); }
+    text-align:center; color:#eaf6ff; padding:24px; z-index:5; background:rgba(4,6,14,.6); backdrop-filter:blur(2px);
+    overflow-y:auto; }
   .hidden { display:none !important; }
   h1 { font-size:clamp(30px,9vw,60px); font-weight:800; letter-spacing:2px; color:#46f0ff;
     text-shadow:0 0 12px #46f0ff,0 0 34px #0a7cff; margin-bottom:2px; }
@@ -42,6 +43,23 @@
   #buffs { display:flex; gap:6px; margin-top:6px; justify-content:flex-start; }
   .buff { font-size:clamp(12px,3.4vw,15px); font-weight:800; padding:2px 8px; border-radius:20px;
     background:rgba(7,10,28,.7); color:#eaf6ff; box-shadow:0 0 10px rgba(70,240,255,.4); }
+  #lbWrap { margin:14px 0 4px; width:min(340px,86vw); }
+  .lbTitle { font-size:clamp(13px,3.6vw,16px); letter-spacing:3px; color:#ffe36e; text-shadow:0 0 10px #ffb800; margin-bottom:8px; font-weight:800; }
+  #lbList { list-style:none; padding:0; margin:0; }
+  #lbList li { display:flex; align-items:center; gap:10px; padding:6px 12px; border-radius:10px;
+    background:rgba(124,91,255,.10); margin:4px 0; font-weight:700; font-size:clamp(14px,4vw,17px); }
+  #lbList li.hl { background:rgba(70,240,255,.22); box-shadow:0 0 12px rgba(70,240,255,.5); }
+  #lbList .rk { width:26px; text-align:center; color:#b9c6e6; flex:none; }
+  #lbList .nm { flex:1; text-align:left; color:#eaf6ff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #lbList .sc { color:#46f0ff; text-shadow:0 0 8px #0a7cff; flex:none; }
+  #lbList .empty { color:#6f7ba0; font-weight:600; justify-content:center; }
+  #nameRow { margin:8px 0 2px; }
+  .newBadge { color:#ff5db1; font-weight:800; letter-spacing:1px; text-shadow:0 0 12px #ff2f92; margin-bottom:8px; font-size:clamp(14px,4vw,18px); }
+  .nameEntry { display:flex; gap:8px; justify-content:center; }
+  #nameInput { padding:10px 14px; font-size:16px; border-radius:30px; border:2px solid rgba(70,240,255,.5);
+    background:rgba(7,10,28,.85); color:#eaf6ff; text-align:center; width:150px; text-transform:uppercase; font-weight:700; }
+  #nameInput:focus { outline:none; border-color:#46f0ff; box-shadow:0 0 12px rgba(70,240,255,.5); }
+  .btn.small { margin-top:0; padding:10px 22px; font-size:16px; }
 </style>
 
 <div id="wrap">
@@ -76,7 +94,17 @@
     <h2>WRECKED 💥</h2>
     <div class="big" id="finalScore">0</div>
     <p id="killLine">0 enemies destroyed</p>
-    <p id="bestLine">Best: 0</p>
+    <div id="nameRow" class="hidden">
+      <div class="newBadge">🎉 NEW HIGH SCORE!</div>
+      <div class="nameEntry">
+        <input id="nameInput" maxlength="10" placeholder="YOUR NAME" autocomplete="off" spellcheck="false" />
+        <button class="btn small" id="saveBtn">SAVE</button>
+      </div>
+    </div>
+    <div id="lbWrap">
+      <div class="lbTitle">🏆 LEADERBOARD</div>
+      <ol id="lbList"></ol>
+    </div>
     <button class="btn" id="retryBtn">DRIVE AGAIN ↻</button>
     <div class="hint">Drag / arrow keys to steer</div>
   </div>
@@ -97,6 +125,10 @@
   const buffsEl = document.getElementById('buffs');
   const coinbarEl = document.getElementById('coinbar');
   const pickerEl = document.getElementById('picker');
+  const lbListEl = document.getElementById('lbList');
+  const nameRow = document.getElementById('nameRow');
+  const nameInput = document.getElementById('nameInput');
+  const saveBtn = document.getElementById('saveBtn');
 
   // ---------- CAR COLORS ----------
   const CAR_COLORS = {
@@ -279,6 +311,51 @@
 
   best = parseInt(localStorage.getItem('nh_best') || '0', 10);
 
+  // ---------- LOCAL HIGH-SCORE LEADERBOARD (top scores saved on this device) ----------
+  const LB_KEY = 'nh_leaderboard', LB_SIZE = 8;
+  let leaderboard = [];
+  try {
+    const raw = JSON.parse(localStorage.getItem(LB_KEY) || '[]');
+    if (Array.isArray(raw)) leaderboard = raw.filter(e => e && typeof e.score === 'number' && typeof e.name === 'string');
+  } catch (e) { leaderboard = []; }
+  leaderboard.sort((a, b) => b.score - a.score);
+  leaderboard = leaderboard.slice(0, LB_SIZE);
+  let playerName = localStorage.getItem('nh_name') || '';
+  let pendingScore = null;   // a score awaiting a name entry, or null
+
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+  function scoreQualifies(s) {
+    return s > 0 && (leaderboard.length < LB_SIZE || s > leaderboard[leaderboard.length - 1].score);
+  }
+  function renderLeaderboard(highlight) {
+    let rows = leaderboard.slice();
+    let preview = null;
+    if (pendingScore !== null) {                     // show where the fresh score would land
+      preview = { name: '???', score: pendingScore, _p: true };
+      rows = leaderboard.concat([preview]).sort((a, b) => b.score - a.score).slice(0, LB_SIZE);
+    }
+    if (rows.length === 0) { lbListEl.innerHTML = '<li class="empty">No scores yet — be the first!</li>'; return; }
+    lbListEl.innerHTML = rows.map((e, i) => {
+      const medal = ['🥇','🥈','🥉'][i] || (i + 1) + '.';
+      const hl = (e._p || (highlight && e === highlight)) ? ' class="hl"' : '';
+      return '<li' + hl + '><span class="rk">' + medal + '</span><span class="nm">' +
+             esc(e.name) + '</span><span class="sc">' + e.score + '</span></li>';
+    }).join('');
+  }
+  function submitScore(raw) {
+    if (pendingScore === null) return;
+    const name = ((raw || '').trim().toUpperCase().replace(/[<>&"]/g, '').slice(0, 10)) || 'YOU';
+    playerName = name; localStorage.setItem('nh_name', name);
+    const entry = { name, score: pendingScore };
+    leaderboard.push(entry);
+    leaderboard.sort((a, b) => b.score - a.score);
+    leaderboard = leaderboard.slice(0, LB_SIZE);
+    localStorage.setItem(LB_KEY, JSON.stringify(leaderboard));
+    pendingScore = null;
+    nameRow.classList.add('hidden');
+    renderLeaderboard(entry);
+  }
+
   function reset() {
     bullets = []; enemies = []; pickups = []; powers = []; ebullets = []; particles = []; floaters = [];
     score = 0; kills = 0; lives = 3; coins = 0;
@@ -336,7 +413,16 @@
     if (score > best) { best = score; localStorage.setItem('nh_best', String(best)); }
     document.getElementById('finalScore').textContent = score;
     document.getElementById('killLine').textContent = kills + ' enem' + (kills===1?'y':'ies') + ' destroyed';
-    document.getElementById('bestLine').textContent = 'Best: ' + best;
+    // leaderboard: if this run makes the board, offer a name entry
+    if (scoreQualifies(score)) {
+      pendingScore = score;
+      nameInput.value = playerName;
+      nameRow.classList.remove('hidden');
+    } else {
+      pendingScore = null;
+      nameRow.classList.add('hidden');
+    }
+    renderLeaderboard();
     hud.classList.add('hidden');
     setTimeout(() => overScreen.classList.remove('hidden'), 500);
   }
@@ -442,18 +528,25 @@
   canvas.addEventListener('touchstart', onDown, { passive:false });
   canvas.addEventListener('touchmove', onMove, { passive:false });
   window.addEventListener('touchend', onUp);
+  const typingName = () => document.activeElement === nameInput;
   window.addEventListener('keydown', (e) => {
+    if (typingName()) return;   // don't let steering/space hijack name entry
     if (e.code==='ArrowLeft'||e.code==='KeyA') keyL = true;
     if (e.code==='ArrowRight'||e.code==='KeyD') keyR = true;
-    if (e.code==='Space' && state!=='play') { e.preventDefault(); startGame(); }
+    if (e.code==='Space' && state!=='play') { e.preventDefault(); if (pendingScore!==null) submitScore(nameInput.value); startGame(); }
   });
   window.addEventListener('keyup', (e) => {
     if (e.code==='ArrowLeft'||e.code==='KeyA') keyL = false;
     if (e.code==='ArrowRight'||e.code==='KeyD') keyR = false;
   });
 
+  // leaderboard name entry
+  saveBtn.addEventListener('click', () => submitScore(nameInput.value));
+  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submitScore(nameInput.value); nameInput.blur(); } });
+
+  function retry() { if (pendingScore !== null) submitScore(nameInput.value); startGame(); }
   document.getElementById('startBtn').addEventListener('click', startGame);
-  document.getElementById('retryBtn').addEventListener('click', startGame);
+  document.getElementById('retryBtn').addEventListener('click', retry);
 
   // ---- loop ----
   let last = performance.now();

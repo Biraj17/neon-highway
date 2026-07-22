@@ -59,6 +59,16 @@ Every **1000 points**, a **boss truck** rolls in with a health bar. It strafes a
 the road and fires back at you — regular traffic pauses so you can focus. Destroy it for
 **+500 points and a bonus life** (up to 5).
 
+## 🏆 High-score leaderboard
+
+Beat one of the top **8** scores and you'll be prompted to enter your name on the
+game-over screen. The board shows medals (🥇🥈🥉) and highlights your new entry. Scores
+are saved **locally on your device** (in the browser), so they persist between sessions —
+no account or internet needed.
+
+> Note: this is a per-device leaderboard. A global/shared board across players would need
+> a small backend server, which a fully self-contained single-file game can't include.
+
 ## 🎨 Choose your car
 
 Pick from **4 neon colors** on the start screen (cyan, green, purple, orange). Your
