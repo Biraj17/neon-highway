@@ -401,7 +401,7 @@
   function spawnBoss() {
     const w = Math.min(roadW * 0.5, laneW * 2.4);
     boss = { x: W/2, y: -160, w, h: w*1.15, dir: (Math.random()<0.5?-1:1),
-             phase: 'enter', fireT: 80, max: 26 + bossCount*14 };
+             phase: 'enter', fireT: 80, max: 48 + bossCount*22 };
     boss.hp = boss.max;
   }
 
