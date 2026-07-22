@@ -23,7 +23,8 @@ https://<your-username>.github.io/neon-highway/
 | ------ | ------ | ------- |
 | Steer  | Drag your finger anywhere | `←` `→` or `A` `D` |
 | Shoot  | Automatic | Automatic |
-| Sound / music | 🔊 button (bottom-right) | 🔊 button |
+| Music only | 🎵 button (bottom-right) | 🎵 button |
+| All sound | 🔊 button (bottom-right) | 🔊 button |
 
 ## 🕹️ How to play
 
@@ -71,6 +72,7 @@ still no image files in the repo.
 - Neon glow visuals, animated lane markers, particle explosions, and screen shake
 - Procedural **background music** (a looping synthwave track) + **sound effects** + engine
   drone, all generated live with the Web Audio API — no audio files at all
+- Independent **🎵 music** and **🔊 all-sound** toggles (music preference is remembered)
 - Three **power-ups**, **boss battles**, and a **car color picker**
 - Installable as a **home-screen web app** (self-generated icon + manifest)
 - Rising **difficulty curve** driven by a time-based multiplier

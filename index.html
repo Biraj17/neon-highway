@@ -26,10 +26,13 @@
   #right { text-align:right; }
   #hearts { font-size:clamp(18px,5vw,26px); letter-spacing:2px; }
   #kills { font-size:clamp(13px,3.6vw,16px); color:#ffb0d8; margin-top:2px; }
-  #mute { position:absolute; bottom:16px; right:16px; z-index:6; width:52px; height:52px; border-radius:50%;
+  .iconbtn { position:absolute; bottom:16px; z-index:6; width:52px; height:52px; border-radius:50%;
     border:2px solid rgba(70,240,255,.5); background:rgba(7,10,28,.7); color:#eaf6ff; font-size:22px;
     cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 0 14px rgba(70,240,255,.35); }
-  #mute:active { transform:scale(.92); }
+  .iconbtn:active { transform:scale(.92); }
+  #mute { right:16px; }
+  #musicBtn { right:78px; }
+  .iconbtn.off { opacity:.5; border-color:rgba(255,93,177,.55); box-shadow:0 0 14px rgba(255,93,177,.3); }
   .picker { display:flex; gap:14px; margin-top:18px; }
   .swatch { width:44px; height:44px; border-radius:50%; cursor:pointer; border:3px solid transparent;
     box-shadow:0 0 14px currentColor; transition:transform .12s; }
@@ -43,7 +46,8 @@
 
 <div id="wrap">
   <canvas id="game"></canvas>
-  <button id="mute" class="hidden" title="Sound on/off">🔊</button>
+  <button id="musicBtn" class="iconbtn hidden" title="Music on/off">🎵</button>
+  <button id="mute" class="iconbtn hidden" title="All sound on/off">🔊</button>
 
   <div id="hud" class="hidden">
     <div>
@@ -89,6 +93,7 @@
   const heartsEl = document.getElementById('hearts');
   const killsEl = document.getElementById('kills');
   const muteBtn = document.getElementById('mute');
+  const musicBtn = document.getElementById('musicBtn');
   const buffsEl = document.getElementById('buffs');
   const coinbarEl = document.getElementById('coinbar');
   const pickerEl = document.getElementById('picker');
@@ -169,6 +174,8 @@
 
   // ---------- BACKGROUND MUSIC (procedural synthwave loop, no files) ----------
   let musicGain = null, musicTimer = null, musicStep = 0, nextNoteT = 0;
+  let musicOn = localStorage.getItem('nh_music') !== 'off';
+  const MUSIC_VOL = 0.45;
   const BPM = 112, STEP = 60 / BPM / 4;              // 16th-note length in seconds
   const mtof = m => 440 * Math.pow(2, (m - 69) / 12); // MIDI note -> frequency
   const CHORDS = [ [57,60,64], [53,57,60], [60,64,67], [55,59,62] ]; // Am · F · C · G
@@ -218,7 +225,8 @@
   }
   function startMusic() {
     if (!AC || musicTimer) return;
-    if (!musicGain) { musicGain = AC.createGain(); musicGain.gain.value = 0.45; musicGain.connect(master); }
+    if (!musicGain) { musicGain = AC.createGain(); musicGain.connect(master); }
+    musicGain.gain.value = musicOn ? MUSIC_VOL : 0;
     musicStep = 0; nextNoteT = AC.currentTime + 0.06;
     musicTimer = setInterval(musicScheduler, 25);
   }
@@ -226,9 +234,20 @@
   muteBtn.addEventListener('click', () => {
     soundOn = !soundOn;
     muteBtn.textContent = soundOn ? '🔊' : '🔇';
+    muteBtn.classList.toggle('off', !soundOn);
     if (master) master.gain.value = soundOn ? 0.5 : 0;
     if (engineGain) engineGain.gain.value = soundOn ? 0.05 : 0;
   });
+  musicBtn.addEventListener('click', () => {
+    musicOn = !musicOn;
+    localStorage.setItem('nh_music', musicOn ? 'on' : 'off');
+    musicBtn.textContent = musicOn ? '🎵' : '🔕';
+    musicBtn.classList.toggle('off', !musicOn);
+    if (musicGain) musicGain.gain.value = musicOn ? MUSIC_VOL : 0;
+  });
+  // reflect any saved music preference on the button at startup
+  musicBtn.textContent = musicOn ? '🎵' : '🔕';
+  musicBtn.classList.toggle('off', !musicOn);
 
   let W = 0, H = 0, DPR = 1;
   function resize() {
@@ -283,6 +302,7 @@
     overScreen.classList.add('hidden');
     hud.classList.remove('hidden');
     muteBtn.classList.remove('hidden');
+    musicBtn.classList.remove('hidden');
     startEngine();
     startMusic();
   }
@@ -298,6 +318,7 @@
     state = 'over';
     stopEngine(); stopMusic(); sfxOver();
     muteBtn.classList.add('hidden');
+    musicBtn.classList.add('hidden');
     if (score > best) { best = score; localStorage.setItem('nh_best', String(best)); }
     document.getElementById('finalScore').textContent = score;
     document.getElementById('killLine').textContent = kills + ' enem' + (kills===1?'y':'ies') + ' destroyed';
