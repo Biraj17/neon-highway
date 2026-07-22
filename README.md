@@ -29,7 +29,9 @@ https://<your-username>.github.io/neon-highway/
 
 - Your car **auto-fires** straight ahead — just focus on steering.
 - 💥 **Red enemy cars** take 2 hits to destroy. Blast them before they ram you.
-- ◆ **Gold cells** give bonus points — grab them when it's safe.
+- ◆ **Gold cells** give points **and** fill a bonus meter — collect **10** to earn a
+  reward: a **bonus life** (or a random power-up if you're already at full health). Your
+  progress shows as `◆ x / 10` in the HUD.
 - ❤️ You start with **3 lives** (heal up to 5). Crashing costs a life, with brief
   invincibility after.
 - 📈 **It gets harder over time** — the longer you survive, the faster and denser the

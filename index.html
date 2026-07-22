@@ -22,6 +22,7 @@
   #hud { position:absolute; top:0; left:0; right:0; padding:14px 20px; z-index:4; display:flex;
     justify-content:space-between; align-items:flex-start; pointer-events:none; font-weight:800; color:#eaf6ff; }
   #score { font-size:clamp(20px,6vw,30px); text-shadow:0 0 10px #46f0ff; }
+  #coinbar { font-size:clamp(14px,4vw,18px); color:#ffe36e; text-shadow:0 0 10px #ffb800; margin-top:2px; font-weight:800; }
   #right { text-align:right; }
   #hearts { font-size:clamp(18px,5vw,26px); letter-spacing:2px; }
   #kills { font-size:clamp(13px,3.6vw,16px); color:#ffb0d8; margin-top:2px; }
@@ -47,6 +48,7 @@
   <div id="hud" class="hidden">
     <div>
       <div id="score">0</div>
+      <div id="coinbar">◆ 0 / 10</div>
       <div id="buffs"></div>
     </div>
     <div id="right">
@@ -59,7 +61,7 @@
     <h1>NEON HIGHWAY</h1>
     <div class="sub">D R I V E &nbsp;&amp;&nbsp; S H O O T</div>
     <p>You auto-fire straight ahead. <b style="color:#46f0ff;">Drag your finger</b> (or use <b style="color:#46f0ff;">← →</b> / <b style="color:#46f0ff;">A D</b>) to steer across the highway.</p>
-    <p>Blast <b style="color:#ff5db1;">red cars</b>, grab <b style="color:#ffe36e;">gold cells</b>, and snag <b style="color:#4dffa0;">power-ups</b> 🛡️⚡✦. Survive <b style="color:#ff5db1;">boss trucks</b> every 1000 points!</p>
+    <p>Blast <b style="color:#ff5db1;">red cars</b> and snag <b style="color:#4dffa0;">power-ups</b> 🛡️⚡✦. Collect <b style="color:#ffe36e;">10 gold cells ◆</b> for a bonus life or power-up. Survive <b style="color:#ff5db1;">boss trucks</b> every 1000 points!</p>
     <div class="pickLabel">CHOOSE YOUR CAR</div>
     <div class="picker" id="picker"></div>
     <button class="btn" id="startBtn">START ENGINE ▶</button>
@@ -88,6 +90,7 @@
   const killsEl = document.getElementById('kills');
   const muteBtn = document.getElementById('mute');
   const buffsEl = document.getElementById('buffs');
+  const coinbarEl = document.getElementById('coinbar');
   const pickerEl = document.getElementById('picker');
 
   // ---------- CAR COLORS ----------
@@ -190,17 +193,19 @@
   }
 
   const player = { x: 0, y: 0, w: 40, h: 66, targetX: 0 };
-  let bullets = [], enemies = [], pickups = [], powers = [], ebullets = [], particles = [];
+  let bullets = [], enemies = [], pickups = [], powers = [], ebullets = [], particles = [], floaters = [];
   let score, kills, lives, speed, spawnT, pickupT, powerT, fireT, state, best, flash, shakeT, invuln;
   let elapsed, diff;                 // elapsed seconds and difficulty multiplier
   let shieldT, rapidT, spreadT;      // active power-up timers (frames)
   let boss, nextBoss, bossCount;     // boss truck state
+  let coins;                         // gold cells collected — 10 earns a bonus
+  const COIN_GOAL = 10;
 
   best = parseInt(localStorage.getItem('nh_best') || '0', 10);
 
   function reset() {
-    bullets = []; enemies = []; pickups = []; powers = []; ebullets = []; particles = [];
-    score = 0; kills = 0; lives = 3;
+    bullets = []; enemies = []; pickups = []; powers = []; ebullets = []; particles = []; floaters = [];
+    score = 0; kills = 0; lives = 3; coins = 0;
     speed = 5.5; spawnT = 40; pickupT = 120; powerT = 360; fireT = 0;
     elapsed = 0; diff = 1;
     shieldT = 0; rapidT = 0; spreadT = 0;
@@ -257,8 +262,29 @@
     updateHud();
   }
 
+  function addFloater(text, color) {
+    floaters.push({ x: player.x, y: player.y - player.h, text, color, life: 1 });
+  }
+  function grantCoinBonus() {
+    flash = 1; shakeT = Math.max(shakeT, 10);
+    sfxPickup(); setTimeout(sfxPickup, 90);
+    if (lives < 5) {                       // hurt? a full meter heals you
+      lives++;
+      addFloater('+1 LIFE ❤', '#ff6b9d');
+    } else {                               // already healthy? get a random power-up
+      const t = POWER_TYPES[Math.floor(Math.random() * POWER_TYPES.length)];
+      if (t === 'shield') shieldT = 360;
+      else if (t === 'rapid') rapidT = 420;
+      else spreadT = 420;
+      addFloater(POWER_INFO[t].icon + ' POWER-UP!', POWER_INFO[t].color);
+    }
+    for (let i = 0; i < 18; i++) particles.push(part(player.x, player.y, '#ffe36e'));
+    updateHud();
+  }
+
   function updateHud() {
     scoreEl.textContent = score;
+    coinbarEl.textContent = '◆ ' + (coins % COIN_GOAL) + ' / ' + COIN_GOAL;
     heartsEl.textContent = '❤'.repeat(Math.max(0, lives)) + '♡'.repeat(Math.max(0, 5 - lives));
     killsEl.textContent = kills + ' kills';
     let html = '';
@@ -509,15 +535,21 @@
         loseLife();
       }
 
-      // pickups
+      // gold cells — each is worth points AND fills your bonus meter
       for (const p of pickups) p.y += speed*0.7*dt;
       for (const p of pickups) {
         if (Math.abs(p.x-player.x) < player.w/2+p.r && Math.abs(p.y-player.y) < player.h/2+p.r) {
-          p.y = H+999; score += 50; flash = 0.6; sfxPickup();
+          p.y = H+999; score += 20; flash = 0.5; sfxPickup();
           for (let i=0;i<10;i++) particles.push(part(p.x,p.y,'#ffe36e'));
+          coins++;
+          if (coins % COIN_GOAL === 0) grantCoinBonus();   // every 10 = a reward!
         }
       }
       pickups = pickups.filter(p => p.y < H+40);
+
+      // floating reward texts drift up and fade
+      for (const f of floaters) { f.y -= 0.7*dt; f.life -= 0.014*dt; }
+      floaters = floaters.filter(f => f.life > 0);
 
       // power-ups
       for (const p of powers) p.y += speed*0.6*dt;
@@ -572,6 +604,18 @@
     }
     ctx.globalAlpha = 1;
     particles = particles.filter(p => p.life>0);
+
+    // floating reward texts ("+1 LIFE", "POWER-UP!")
+    for (const f of floaters) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, f.life * 1.4);
+      ctx.fillStyle = f.color; ctx.shadowColor = f.color; ctx.shadowBlur = 14;
+      ctx.font = 'bold ' + Math.round(Math.min(W*0.06, 26)) + 'px system-ui, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(f.text, f.x, f.y);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
 
     ctx.restore();
 
