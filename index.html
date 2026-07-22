@@ -29,6 +29,15 @@
     border:2px solid rgba(70,240,255,.5); background:rgba(7,10,28,.7); color:#eaf6ff; font-size:22px;
     cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 0 14px rgba(70,240,255,.35); }
   #mute:active { transform:scale(.92); }
+  .picker { display:flex; gap:14px; margin-top:18px; }
+  .swatch { width:44px; height:44px; border-radius:50%; cursor:pointer; border:3px solid transparent;
+    box-shadow:0 0 14px currentColor; transition:transform .12s; }
+  .swatch:active { transform:scale(.9); }
+  .swatch.sel { border-color:#fff; transform:scale(1.12); }
+  .pickLabel { margin-top:16px; font-size:clamp(12px,3.4vw,15px); color:#8ea2d8; letter-spacing:1px; }
+  #buffs { display:flex; gap:6px; margin-top:6px; justify-content:flex-start; }
+  .buff { font-size:clamp(12px,3.4vw,15px); font-weight:800; padding:2px 8px; border-radius:20px;
+    background:rgba(7,10,28,.7); color:#eaf6ff; box-shadow:0 0 10px rgba(70,240,255,.4); }
 </style>
 
 <div id="wrap">
@@ -36,7 +45,10 @@
   <button id="mute" class="hidden" title="Sound on/off">🔊</button>
 
   <div id="hud" class="hidden">
-    <div id="score">0</div>
+    <div>
+      <div id="score">0</div>
+      <div id="buffs"></div>
+    </div>
     <div id="right">
       <div id="hearts">❤❤❤</div>
       <div id="kills">0 kills</div>
@@ -46,8 +58,10 @@
   <div id="start" class="overlay">
     <h1>NEON HIGHWAY</h1>
     <div class="sub">D R I V E &nbsp;&amp;&nbsp; S H O O T</div>
-    <p>You auto-fire straight ahead. <b style="color:#46f0ff;">Drag your finger</b> (or use <b style="color:#46f0ff;">← →</b> / <b style="color:#46f0ff;">A D</b>) to steer your car across the highway.</p>
-    <p><b style="color:#ff5db1;">Blast red enemy cars</b> before they ram you. Grab <b style="color:#ffe36e;">gold cells</b> for points. Don't crash — you have 3 lives!</p>
+    <p>You auto-fire straight ahead. <b style="color:#46f0ff;">Drag your finger</b> (or use <b style="color:#46f0ff;">← →</b> / <b style="color:#46f0ff;">A D</b>) to steer across the highway.</p>
+    <p>Blast <b style="color:#ff5db1;">red cars</b>, grab <b style="color:#ffe36e;">gold cells</b>, and snag <b style="color:#4dffa0;">power-ups</b> 🛡️⚡✦. Survive <b style="color:#ff5db1;">boss trucks</b> every 1000 points!</p>
+    <div class="pickLabel">CHOOSE YOUR CAR</div>
+    <div class="picker" id="picker"></div>
     <button class="btn" id="startBtn">START ENGINE ▶</button>
     <div class="hint">Best on phone: drag anywhere to steer 🚗</div>
   </div>
@@ -73,6 +87,34 @@
   const heartsEl = document.getElementById('hearts');
   const killsEl = document.getElementById('kills');
   const muteBtn = document.getElementById('mute');
+  const buffsEl = document.getElementById('buffs');
+  const pickerEl = document.getElementById('picker');
+
+  // ---------- CAR COLORS ----------
+  const CAR_COLORS = {
+    cyan:   { body:'#0a7cff', glow:'#46f0ff' },
+    green:  { body:'#12b866', glow:'#4dffa0' },
+    purple: { body:'#7c34ff', glow:'#b98bff' },
+    orange: { body:'#ff7a1a', glow:'#ffc46b' },
+  };
+  let carKey = localStorage.getItem('nh_car');
+  if (!CAR_COLORS[carKey]) carKey = 'cyan';
+  function buildPicker() {
+    pickerEl.innerHTML = '';
+    Object.keys(CAR_COLORS).forEach(k => {
+      const s = document.createElement('div');
+      s.className = 'swatch' + (k === carKey ? ' sel' : '');
+      s.style.background = CAR_COLORS[k].body;
+      s.style.color = CAR_COLORS[k].glow;
+      s.addEventListener('click', () => {
+        carKey = k; localStorage.setItem('nh_car', k);
+        [...pickerEl.children].forEach(c => c.classList.remove('sel'));
+        s.classList.add('sel');
+      });
+      pickerEl.appendChild(s);
+    });
+  }
+  buildPicker();
 
   // ---------- SOUND (procedural, self-contained — no audio files) ----------
   let AC = null, master = null, soundOn = true, engineNode = null, engineGain = null;
@@ -148,17 +190,21 @@
   }
 
   const player = { x: 0, y: 0, w: 40, h: 66, targetX: 0 };
-  let bullets = [], enemies = [], pickups = [], particles = [];
-  let score, kills, lives, speed, spawnT, pickupT, fireT, state, best, flash, shakeT, invuln;
-  let elapsed, diff; // elapsed seconds and difficulty multiplier (grows over time)
+  let bullets = [], enemies = [], pickups = [], powers = [], ebullets = [], particles = [];
+  let score, kills, lives, speed, spawnT, pickupT, powerT, fireT, state, best, flash, shakeT, invuln;
+  let elapsed, diff;                 // elapsed seconds and difficulty multiplier
+  let shieldT, rapidT, spreadT;      // active power-up timers (frames)
+  let boss, nextBoss, bossCount;     // boss truck state
 
   best = parseInt(localStorage.getItem('nh_best') || '0', 10);
 
   function reset() {
-    bullets = []; enemies = []; pickups = []; particles = [];
+    bullets = []; enemies = []; pickups = []; powers = []; ebullets = []; particles = [];
     score = 0; kills = 0; lives = 3;
-    speed = 5.5; spawnT = 40; pickupT = 120; fireT = 0;
+    speed = 5.5; spawnT = 40; pickupT = 120; powerT = 360; fireT = 0;
     elapsed = 0; diff = 1;
+    shieldT = 0; rapidT = 0; spreadT = 0;
+    boss = null; nextBoss = 1000; bossCount = 0;
     flash = 0; shakeT = 0; invuln = 0; dashY = 0;
     player.w = Math.max(34, Math.min(46, laneW * 0.6));
     player.h = player.w * 1.6;
@@ -197,10 +243,29 @@
     setTimeout(() => overScreen.classList.remove('hidden'), 500);
   }
 
+  function defeatBoss() {
+    if (!boss) return;
+    const bx = boss.x, by = boss.y;
+    score += 500;
+    if (lives < 5) lives++;          // reward: heal a life (capped at 5)
+    bossCount++;
+    nextBoss += 1000;
+    boss = null;
+    shakeT = 22; flash = 1;
+    sfxKill(); setTimeout(sfxKill, 120);
+    for (let i=0;i<40;i++) particles.push(part(bx, by, ['#ff5db1','#ff2f92','#ffe36e','#eaffff'][i%4]));
+    updateHud();
+  }
+
   function updateHud() {
     scoreEl.textContent = score;
-    heartsEl.textContent = '❤'.repeat(Math.max(0, lives)) + '♡'.repeat(Math.max(0, 3 - lives));
+    heartsEl.textContent = '❤'.repeat(Math.max(0, lives)) + '♡'.repeat(Math.max(0, 5 - lives));
     killsEl.textContent = kills + ' kills';
+    let html = '';
+    if (shieldT > 0) html += '<span class="buff" style="color:#4dffa0">🛡 ' + Math.ceil(shieldT/60) + 's</span>';
+    if (rapidT  > 0) html += '<span class="buff" style="color:#ffe36e">⚡ ' + Math.ceil(rapidT/60) + 's</span>';
+    if (spreadT > 0) html += '<span class="buff" style="color:#8ad7ff">✦ ' + Math.ceil(spreadT/60) + 's</span>';
+    buffsEl.innerHTML = html;
   }
 
   function part(x, y, c) {
@@ -216,6 +281,23 @@
   function spawnPickup() {
     const lane = Math.floor(Math.random() * LANES);
     pickups.push({ x: roadX + laneW*(lane+0.5), y: -40, r: 12 });
+  }
+  const POWER_TYPES = ['shield', 'rapid', 'spread'];
+  const POWER_INFO = {
+    shield: { icon:'🛡', color:'#4dffa0', glow:'#12b866' },
+    rapid:  { icon:'⚡', color:'#ffe36e', glow:'#ffb800' },
+    spread: { icon:'✦', color:'#8ad7ff', glow:'#46f0ff' },
+  };
+  function spawnPower() {
+    const lane = Math.floor(Math.random() * LANES);
+    const t = POWER_TYPES[Math.floor(Math.random() * POWER_TYPES.length)];
+    powers.push({ x: roadX + laneW*(lane+0.5), y: -40, r: 17, t });
+  }
+  function spawnBoss() {
+    const w = Math.min(roadW * 0.5, laneW * 2.4);
+    boss = { x: W/2, y: -160, w, h: w*1.15, dir: (Math.random()<0.5?-1:1),
+             phase: 'enter', fireT: 80, max: 26 + bossCount*14 };
+    boss.hp = boss.max;
   }
 
   // ---- input: drag / keys ----
@@ -302,23 +384,43 @@
       player.targetX = Math.max(minX, Math.min(maxX, player.targetX));
       player.x += (player.targetX - player.x) * Math.min(0.35*dt, 1);
 
-      // auto-fire
+      // power-up timers count down
+      if (shieldT > 0) shieldT -= dt;
+      if (rapidT  > 0) rapidT  -= dt;
+      if (spreadT > 0) spreadT -= dt;
+
+      // auto-fire (rapid = faster, spread = 3-way)
       fireT -= dt;
       if (fireT <= 0) {
-        fireT = 9;
-        bullets.push({ x: player.x, y: player.y - player.h/2, vy: -13 });
+        fireT = rapidT > 0 ? 4 : 9;
+        const by = player.y - player.h/2;
+        if (spreadT > 0) {
+          bullets.push({ x: player.x, y: by, vx: 0,    vy: -13 });
+          bullets.push({ x: player.x, y: by, vx: -3.4, vy: -12.6 });
+          bullets.push({ x: player.x, y: by, vx:  3.4, vy: -12.6 });
+        } else {
+          bullets.push({ x: player.x, y: by, vx: 0, vy: -13 });
+        }
         sfxShoot();
       }
 
       // bullets
-      for (const b of bullets) b.y += b.vy*dt;
+      for (const b of bullets) { b.y += b.vy*dt; b.x += (b.vx||0)*dt; }
       bullets = bullets.filter(b => b.y > -20);
 
-      // spawns — interval shrinks as difficulty climbs (traffic gets denser)
-      spawnT -= dt * diff;
-      if (spawnT <= 0) { spawnEnemy(); spawnT = Math.max(12, 46 - speed*1.6) + Math.random()*18; }
+      // boss trigger — every 1000 points a boss truck rolls in
+      if (!boss && score >= nextBoss) spawnBoss();
+
+      // spawns — interval shrinks as difficulty climbs (traffic gets denser).
+      // Regular traffic pauses while a boss is on screen so you can focus on it.
+      if (!boss) {
+        spawnT -= dt * diff;
+        if (spawnT <= 0) { spawnEnemy(); spawnT = Math.max(12, 46 - speed*1.6) + Math.random()*18; }
+      }
       pickupT -= dt;
       if (pickupT <= 0) { spawnPickup(); pickupT = 150 + Math.random()*160; }
+      powerT -= dt;
+      if (powerT <= 0) { spawnPower(); powerT = 620 + Math.random()*520; }
 
       // enemies — incoming speed is scaled by the difficulty multiplier
       for (const en of enemies) {
@@ -327,11 +429,36 @@
         en.x += Math.sin(en.wob)*0.6*dt;
       }
 
-      // bullet -> enemy
+      // boss behaviour
+      if (boss) {
+        if (boss.phase === 'enter') {
+          boss.y += 1.7*dt;
+          if (boss.y >= H*0.2) { boss.y = H*0.2; boss.phase = 'fight'; }
+        } else {
+          boss.x += boss.dir * 1.5 * diff * dt;
+          const bl = roadX + boss.w/2 + 4, br = roadX + roadW - boss.w/2 - 4;
+          if (boss.x < bl) { boss.x = bl; boss.dir = 1; }
+          if (boss.x > br) { boss.x = br; boss.dir = -1; }
+          boss.fireT -= dt;
+          if (boss.fireT <= 0) {
+            boss.fireT = Math.max(26, 68 - bossCount*6);
+            for (let a = -1; a <= 1; a++)
+              ebullets.push({ x: boss.x + a*20, y: boss.y + boss.h/2, vx: a*1.5, vy: 5 + diff*0.7 });
+            beep(160, 0.12, 'sawtooth', 0.16, 90);
+          }
+        }
+      }
+
+      // enemy bullets (from boss)
+      for (const b of ebullets) { b.y += b.vy*dt; b.x += b.vx*dt; }
+      ebullets = ebullets.filter(b => b.y < H+30);
+
+      // bullet -> enemy / boss
       for (const b of bullets) {
+        let done = false;
         for (const en of enemies) {
           if (en.hp>0 && Math.abs(b.x-en.x) < en.w/2+3 && Math.abs(b.y-en.y) < en.h/2+6) {
-            en.hp--; b.y = -999;
+            en.hp--; b.y = -999; done = true;
             for (let i=0;i<5;i++) particles.push(part(b.x, en.y-en.h/2, '#ffb0d8'));
             if (en.hp<=0) {
               kills++; score += 25; sfxKill();
@@ -340,23 +467,46 @@
             break;
           }
         }
+        if (!done && boss && b.y > -100 &&
+            Math.abs(b.x-boss.x) < boss.w/2 && Math.abs(b.y-boss.y) < boss.h/2) {
+          boss.hp--; b.y = -999;
+          for (let i=0;i<4;i++) particles.push(part(b.x, b.y, '#ffe36e'));
+          if (boss.hp <= 0) defeatBoss(); else sfxHit();
+        }
       }
       bullets = bullets.filter(b => b.y > -20);
       enemies = enemies.filter(en => en.hp>0 && en.y < H+90);
 
-      // player <-> enemy crash
+      // player collisions — shield absorbs hits, recent-hit invuln ignores them
       if (invuln>0) invuln -= dt;
-      if (invuln<=0) {
-        for (const en of enemies) {
-          if (Math.abs(en.x-player.x) < (en.w+player.w)/2 - 8 &&
-              Math.abs(en.y-player.y) < (en.h+player.h)/2 - 10) {
-            en.hp = 0;
-            for (let i=0;i<14;i++) particles.push(part(en.x, en.y, '#ff5db1'));
-            loseLife();
-            break;
-          }
+      // enemy car crash
+      for (const en of enemies) {
+        if (en.hp>0 &&
+            Math.abs(en.x-player.x) < (en.w+player.w)/2 - 8 &&
+            Math.abs(en.y-player.y) < (en.h+player.h)/2 - 10) {
+          en.hp = 0;
+          for (let i=0;i<14;i++) particles.push(part(en.x, en.y, shieldT>0?'#4dffa0':'#ff5db1'));
+          if (shieldT>0) { sfxHit(); shakeT = Math.max(shakeT, 8); }
+          else if (invuln<=0) loseLife();
+          break;
         }
-        enemies = enemies.filter(en => en.hp>0);
+      }
+      enemies = enemies.filter(en => en.hp>0);
+      // enemy bullet hits
+      for (const b of ebullets) {
+        if (Math.abs(b.x-player.x) < player.w/2+5 && Math.abs(b.y-player.y) < player.h/2+6) {
+          b.y = H+999;
+          for (let i=0;i<8;i++) particles.push(part(player.x, player.y, shieldT>0?'#4dffa0':'#ff5db1'));
+          if (shieldT>0) sfxHit();
+          else if (invuln<=0) loseLife();
+        }
+      }
+      ebullets = ebullets.filter(b => b.y < H+30);
+      // boss ram
+      if (boss && invuln<=0 && shieldT<=0 &&
+          Math.abs(boss.x-player.x) < (boss.w+player.w)/2 - 12 &&
+          Math.abs(boss.y-player.y) < (boss.h+player.h)/2 - 12) {
+        loseLife();
       }
 
       // pickups
@@ -369,21 +519,50 @@
       }
       pickups = pickups.filter(p => p.y < H+40);
 
+      // power-ups
+      for (const p of powers) p.y += speed*0.6*dt;
+      for (const p of powers) {
+        if (Math.abs(p.x-player.x) < player.w/2+p.r && Math.abs(p.y-player.y) < player.h/2+p.r) {
+          p.y = H+999; sfxPickup(); flash = 0.7;
+          if (p.t === 'shield') shieldT = 360;
+          else if (p.t === 'rapid') rapidT = 420;
+          else if (p.t === 'spread') spreadT = 420;
+          for (let i=0;i<12;i++) particles.push(part(player.x, player.y, POWER_INFO[p.t].color));
+        }
+      }
+      powers = powers.filter(p => p.y < H+40);
+
       updateHud();
     }
 
-    // draw pickups
+    // draw pickups & power-ups
     for (const p of pickups) drawCell(p.x, p.y);
+    for (const p of powers) drawPower(p);
     // draw enemies
     for (const en of enemies) drawCar(en.x, en.y, en.w, en.h, '#ff2f92', '#ff5db1', true);
+    // draw boss
+    if (boss) drawBoss();
+    // draw enemy bullets
+    for (const b of ebullets) {
+      ctx.save(); ctx.shadowColor='#ff2f92'; ctx.shadowBlur=12; ctx.fillStyle='#ff77b8';
+      ctx.beginPath(); ctx.arc(b.x, b.y, 5, 0, 7); ctx.fill(); ctx.restore();
+    }
     // draw bullets
     for (const b of bullets) {
       ctx.save(); ctx.shadowColor='#46f0ff'; ctx.shadowBlur=12; ctx.fillStyle='#eaffff';
       ctx.fillRect(b.x-2.5, b.y-10, 5, 16); ctx.restore();
     }
-    // draw player (blink when invuln)
+    // draw player (blink when invuln), then shield ring on top
+    const col = CAR_COLORS[carKey];
     if (!(invuln>0 && Math.floor(invuln/5)%2===0))
-      drawCar(player.x, player.y, player.w, player.h, '#0a7cff', '#46f0ff', false);
+      drawCar(player.x, player.y, player.w, player.h, col.body, col.glow, false);
+    if (shieldT > 0) {
+      const a = shieldT < 90 ? (Math.floor(shieldT/6)%2 ? 0.35 : 0.8) : 0.7;
+      ctx.save(); ctx.globalAlpha = a; ctx.strokeStyle = '#4dffa0';
+      ctx.shadowColor = '#4dffa0'; ctx.shadowBlur = 16; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(player.x, player.y, player.w*0.95, 0, 7); ctx.stroke();
+      ctx.restore(); ctx.globalAlpha = 1;
+    }
 
     // particles
     for (const p of particles) {
@@ -428,11 +607,96 @@
     ctx.restore();
   }
 
+  function drawPower(p) {
+    const info = POWER_INFO[p.t];
+    ctx.save(); ctx.translate(p.x, p.y);
+    const pulse = 1 + Math.sin(performance.now()/180)*0.08;
+    ctx.scale(pulse, pulse);
+    ctx.shadowColor = info.glow; ctx.shadowBlur = 18;
+    ctx.fillStyle = 'rgba(7,10,28,.92)'; ctx.strokeStyle = info.color; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(0, 0, p.r, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0; ctx.fillStyle = info.color;
+    ctx.font = 'bold ' + Math.round(p.r*1.15) + 'px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(info.icon, 0, 1);
+    ctx.restore();
+  }
+
+  function drawBoss() {
+    // body
+    drawCar(boss.x, boss.y, boss.w, boss.h, '#c81e5a', '#ff2f92', true);
+    ctx.save(); ctx.translate(boss.x, boss.y);
+    ctx.shadowColor = '#ff2f92'; ctx.shadowBlur = 10; ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(-boss.w*0.42, -boss.h*0.36, boss.w*0.16, boss.h*0.16);
+    ctx.fillRect(boss.w*0.26, -boss.h*0.36, boss.w*0.16, boss.h*0.16);
+    ctx.restore();
+    // HP bar across the top
+    const bw = Math.min(roadW - 20, 420), bx = (W - bw)/2, by = 54, frac = Math.max(0, boss.hp/boss.max);
+    ctx.save();
+    ctx.fillStyle = 'rgba(7,10,28,.85)'; roundRect(bx-2, by-2, bw+4, 16, 8); ctx.fill();
+    ctx.fillStyle = '#ff2f92'; ctx.shadowColor = '#ff2f92'; ctx.shadowBlur = 12;
+    roundRect(bx, by, bw*frac, 12, 6); ctx.fill();
+    ctx.shadowBlur = 0; ctx.fillStyle = '#ffb0d8';
+    ctx.font = 'bold 12px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText('⚠ BOSS TRUCK', W/2, by - 4);
+    ctx.restore();
+  }
+
   function roundRect(x,y,w,h,r){
     ctx.beginPath();
     ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
     ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
   }
+
+  // ---------- APP ICON + "Add to Home Screen" (self-contained, no image files) ----------
+  function makeIcon(size) {
+    const c = document.createElement('canvas'); c.width = c.height = size;
+    const x = c.getContext('2d');
+    const r = size*0.22;
+    x.fillStyle = '#0a0e24';
+    x.beginPath();
+    x.moveTo(r,0); x.arcTo(size,0,size,size,r); x.arcTo(size,size,0,size,r);
+    x.arcTo(0,size,0,0,r); x.arcTo(0,0,size,0,r); x.closePath(); x.fill();
+    const g = x.createRadialGradient(size/2,size*0.42,size*0.04,size/2,size*0.5,size*0.6);
+    g.addColorStop(0,'rgba(70,240,255,.4)'); g.addColorStop(1,'rgba(70,240,255,0)');
+    x.fillStyle = g; x.fillRect(0,0,size,size);
+    const cw = size*0.42, ch = size*0.6, cx = size/2, cy = size*0.52, rr = size*0.09;
+    const bx0 = cx-cw/2, by0 = cy-ch/2;
+    x.save(); x.shadowColor = '#46f0ff'; x.shadowBlur = size*0.12;
+    const grd = x.createLinearGradient(cx,by0,cx,by0+ch);
+    grd.addColorStop(0,'#46f0ff'); grd.addColorStop(1,'#0a7cff'); x.fillStyle = grd;
+    x.beginPath();
+    x.moveTo(bx0+rr,by0); x.arcTo(bx0+cw,by0,bx0+cw,by0+ch,rr); x.arcTo(bx0+cw,by0+ch,bx0,by0+ch,rr);
+    x.arcTo(bx0,by0+ch,bx0,by0,rr); x.arcTo(bx0,by0,bx0+cw,by0,rr); x.closePath(); x.fill();
+    x.restore();
+    x.fillStyle = 'rgba(234,255,255,.92)';
+    x.fillRect(cx-cw*0.28, cy-ch*0.3, cw*0.56, ch*0.22);
+    return c.toDataURL('image/png');
+  }
+  function injectPWA() {
+    try {
+      const head = document.head || document.getElementsByTagName('head')[0];
+      if (!head) return;
+      const add = (tag, attrs) => { const el = document.createElement(tag);
+        for (const k in attrs) el.setAttribute(k, attrs[k]); head.appendChild(el); };
+      if (!document.querySelector('meta[name="viewport"]'))
+        add('meta', { name:'viewport', content:'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover' });
+      add('meta', { name:'theme-color', content:'#04060e' });
+      add('meta', { name:'mobile-web-app-capable', content:'yes' });
+      add('meta', { name:'apple-mobile-web-app-capable', content:'yes' });
+      add('meta', { name:'apple-mobile-web-app-status-bar-style', content:'black-translucent' });
+      add('meta', { name:'apple-mobile-web-app-title', content:'Neon Highway' });
+      const icon192 = makeIcon(192);
+      add('link', { rel:'icon', type:'image/png', href: icon192 });
+      add('link', { rel:'apple-touch-icon', href: makeIcon(180) });
+      const manifest = { name:'Neon Highway', short_name:'Neon Highway', display:'standalone',
+        orientation:'portrait', background_color:'#04060e', theme_color:'#04060e', start_url:'.',
+        icons:[ { src: icon192, sizes:'192x192', type:'image/png' },
+                { src: makeIcon(512), sizes:'512x512', type:'image/png' } ] };
+      add('link', { rel:'manifest', href:'data:application/manifest+json,' + encodeURIComponent(JSON.stringify(manifest)) });
+    } catch (e) {}
+  }
+  injectPWA();
 
   resize();
   state = 'menu'; reset();
