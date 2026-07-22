@@ -45,9 +45,13 @@ Grab the glowing orbs that float down the road:
 
 | Orb | Power | Effect |
 | --- | ----- | ------ |
-| 🛡 | **Shield** | Absorbs crashes for ~6 seconds — drive straight through enemies |
-| ⚡ | **Rapid Fire** | Roughly doubles your fire rate for ~7 seconds |
-| ✦ | **Spread Shot** | Fires a 3-way spread for ~7 seconds |
+| 🛡 | **Shield** | A protective bubble — absorbs one crash, then breaks |
+| ⚡ | **Rapid Fire** | Roughly doubles your fire rate |
+| ✦ | **Spread Shot** | Fires a 3-way spread |
+
+Power-ups **don't expire on a timer** — your ⚡ Rapid Fire and ✦ Spread Shot stay active
+until you **lose a life**, and the 🛡 Shield lasts until it absorbs a hit. So the better you
+drive, the longer you keep your upgraded gun.
 
 ### 🏆 Boss trucks
 

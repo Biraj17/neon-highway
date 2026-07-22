@@ -272,7 +272,7 @@
   let bullets = [], enemies = [], pickups = [], powers = [], ebullets = [], particles = [], floaters = [];
   let score, kills, lives, speed, spawnT, pickupT, powerT, fireT, state, best, flash, shakeT, invuln;
   let elapsed, diff;                 // elapsed seconds and difficulty multiplier
-  let shieldT, rapidT, spreadT;      // active power-up timers (frames)
+  let shieldOn, rapidOn, spreadOn;   // power-ups persist until you lose a life
   let boss, nextBoss, bossCount;     // boss truck state
   let coins;                         // gold cells collected — 10 earns a bonus
   const COIN_GOAL = 10;
@@ -284,7 +284,7 @@
     score = 0; kills = 0; lives = 3; coins = 0;
     speed = 5.5; spawnT = 40; pickupT = 120; powerT = 360; fireT = 0;
     elapsed = 0; diff = 1;
-    shieldT = 0; rapidT = 0; spreadT = 0;
+    shieldOn = false; rapidOn = false; spreadOn = false;
     boss = null; nextBoss = 1000; bossCount = 0;
     flash = 0; shakeT = 0; invuln = 0; dashY = 0;
     player.w = Math.max(34, Math.min(46, laneW * 0.6));
@@ -309,9 +309,23 @@
 
   function loseLife() {
     lives--; invuln = 70; shakeT = 16; flash = 1; sfxCrash();
+    rapidOn = false; spreadOn = false;   // losing a life resets your gun back to normal
     for (let i = 0; i < 22; i++) particles.push(part(player.x, player.y, ['#ff5db1','#ffe36e','#46f0ff'][i%3]));
     updateHud();
     if (lives <= 0) gameOver();
+  }
+
+  // A hit on the player: the shield soaks it up (and breaks), otherwise you lose a life.
+  function playerHit(px, py) {
+    if (invuln > 0) return;
+    if (shieldOn) {
+      shieldOn = false; invuln = 40; sfxHit(); shakeT = Math.max(shakeT, 10);
+      for (let i = 0; i < 14; i++) particles.push(part(px, py, '#4dffa0'));
+      addFloater('SHIELD DOWN', '#4dffa0');
+      updateHud();
+    } else {
+      loseLife();
+    }
   }
 
   function gameOver() {
@@ -352,9 +366,9 @@
       addFloater('+1 LIFE ❤', '#ff6b9d');
     } else {                               // already healthy? get a random power-up
       const t = POWER_TYPES[Math.floor(Math.random() * POWER_TYPES.length)];
-      if (t === 'shield') shieldT = 360;
-      else if (t === 'rapid') rapidT = 420;
-      else spreadT = 420;
+      if (t === 'shield') shieldOn = true;
+      else if (t === 'rapid') rapidOn = true;
+      else spreadOn = true;
       addFloater(POWER_INFO[t].icon + ' POWER-UP!', POWER_INFO[t].color);
     }
     for (let i = 0; i < 18; i++) particles.push(part(player.x, player.y, '#ffe36e'));
@@ -367,9 +381,9 @@
     heartsEl.textContent = '❤'.repeat(Math.max(0, lives)) + '♡'.repeat(Math.max(0, 5 - lives));
     killsEl.textContent = kills + ' kills';
     let html = '';
-    if (shieldT > 0) html += '<span class="buff" style="color:#4dffa0">🛡 ' + Math.ceil(shieldT/60) + 's</span>';
-    if (rapidT  > 0) html += '<span class="buff" style="color:#ffe36e">⚡ ' + Math.ceil(rapidT/60) + 's</span>';
-    if (spreadT > 0) html += '<span class="buff" style="color:#8ad7ff">✦ ' + Math.ceil(spreadT/60) + 's</span>';
+    if (shieldOn) html += '<span class="buff" style="color:#4dffa0">🛡</span>';
+    if (rapidOn)  html += '<span class="buff" style="color:#ffe36e">⚡</span>';
+    if (spreadOn) html += '<span class="buff" style="color:#8ad7ff">✦</span>';
     buffsEl.innerHTML = html;
   }
 
@@ -489,17 +503,13 @@
       player.targetX = Math.max(minX, Math.min(maxX, player.targetX));
       player.x += (player.targetX - player.x) * Math.min(0.35*dt, 1);
 
-      // power-up timers count down
-      if (shieldT > 0) shieldT -= dt;
-      if (rapidT  > 0) rapidT  -= dt;
-      if (spreadT > 0) spreadT -= dt;
-
-      // auto-fire (rapid = faster, spread = 3-way)
+      // auto-fire (rapid = faster, spread = 3-way). These upgrades stay active
+      // until you lose a life — no timer.
       fireT -= dt;
       if (fireT <= 0) {
-        fireT = rapidT > 0 ? 4 : 9;
+        fireT = rapidOn ? 4 : 9;
         const by = player.y - player.h/2;
-        if (spreadT > 0) {
+        if (spreadOn) {
           bullets.push({ x: player.x, y: by, vx: 0,    vy: -13 });
           bullets.push({ x: player.x, y: by, vx: -3.4, vy: -12.6 });
           bullets.push({ x: player.x, y: by, vx:  3.4, vy: -12.6 });
@@ -590,9 +600,8 @@
             Math.abs(en.x-player.x) < (en.w+player.w)/2 - 8 &&
             Math.abs(en.y-player.y) < (en.h+player.h)/2 - 10) {
           en.hp = 0;
-          for (let i=0;i<14;i++) particles.push(part(en.x, en.y, shieldT>0?'#4dffa0':'#ff5db1'));
-          if (shieldT>0) { sfxHit(); shakeT = Math.max(shakeT, 8); }
-          else if (invuln<=0) loseLife();
+          for (let i=0;i<14;i++) particles.push(part(en.x, en.y, shieldOn?'#4dffa0':'#ff5db1'));
+          playerHit(en.x, en.y);
           break;
         }
       }
@@ -601,17 +610,16 @@
       for (const b of ebullets) {
         if (Math.abs(b.x-player.x) < player.w/2+5 && Math.abs(b.y-player.y) < player.h/2+6) {
           b.y = H+999;
-          for (let i=0;i<8;i++) particles.push(part(player.x, player.y, shieldT>0?'#4dffa0':'#ff5db1'));
-          if (shieldT>0) sfxHit();
-          else if (invuln<=0) loseLife();
+          for (let i=0;i<8;i++) particles.push(part(player.x, player.y, shieldOn?'#4dffa0':'#ff5db1'));
+          playerHit(player.x, player.y);
         }
       }
       ebullets = ebullets.filter(b => b.y < H+30);
       // boss ram
-      if (boss && invuln<=0 && shieldT<=0 &&
+      if (boss &&
           Math.abs(boss.x-player.x) < (boss.w+player.w)/2 - 12 &&
           Math.abs(boss.y-player.y) < (boss.h+player.h)/2 - 12) {
-        loseLife();
+        playerHit(player.x, player.y);
       }
 
       // gold cells — each is worth points AND fills your bonus meter
@@ -635,9 +643,9 @@
       for (const p of powers) {
         if (Math.abs(p.x-player.x) < player.w/2+p.r && Math.abs(p.y-player.y) < player.h/2+p.r) {
           p.y = H+999; sfxPickup(); flash = 0.7;
-          if (p.t === 'shield') shieldT = 360;
-          else if (p.t === 'rapid') rapidT = 420;
-          else if (p.t === 'spread') spreadT = 420;
+          if (p.t === 'shield') shieldOn = true;
+          else if (p.t === 'rapid') rapidOn = true;
+          else if (p.t === 'spread') spreadOn = true;
           for (let i=0;i<12;i++) particles.push(part(player.x, player.y, POWER_INFO[p.t].color));
         }
       }
@@ -667,8 +675,8 @@
     const col = CAR_COLORS[carKey];
     if (!(invuln>0 && Math.floor(invuln/5)%2===0))
       drawCar(player.x, player.y, player.w, player.h, col.body, col.glow, false);
-    if (shieldT > 0) {
-      const a = shieldT < 90 ? (Math.floor(shieldT/6)%2 ? 0.35 : 0.8) : 0.7;
+    if (shieldOn) {
+      const a = 0.55 + Math.sin(performance.now()/220)*0.2;   // gentle pulse
       ctx.save(); ctx.globalAlpha = a; ctx.strokeStyle = '#4dffa0';
       ctx.shadowColor = '#4dffa0'; ctx.shadowBlur = 16; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(player.x, player.y, player.w*0.95, 0, 7); ctx.stroke();
