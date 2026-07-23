@@ -69,6 +69,17 @@ persist between sessions — no account or internet needed.
 > Note: this is a per-device leaderboard. A global/shared board across players would need
 > a small backend server, which a fully self-contained single-file game can't include.
 
+## 🌍 Global history (live, worldwide)
+
+The public site also has a **🌍 GLOBAL HISTORY** button. Every completed run is recorded to
+a shared cloud database (Firebase Realtime Database), so you can see a **live feed of plays
+from everyone, everywhere** — player name, score, and how long ago — plus a total play
+count. It updates in real time. Players never sign up; they just play.
+
+This runs only where the Firebase SDK can load (i.e. the hosted site). In the offline
+`claude.ai` play sandbox the button is hidden and the game uses the local board instead, so
+nothing ever breaks.
+
 ## 🎨 Choose your car
 
 Pick from **4 neon colors** on the start screen (cyan, green, purple, orange). Your

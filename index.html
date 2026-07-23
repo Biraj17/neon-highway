@@ -60,6 +60,13 @@
     background:rgba(7,10,28,.85); color:#eaf6ff; text-align:center; width:150px; text-transform:uppercase; font-weight:700; }
   #nameInput:focus { outline:none; border-color:#46f0ff; box-shadow:0 0 12px rgba(70,240,255,.5); }
   .btn.small { margin-top:0; padding:10px 22px; font-size:16px; }
+  .btn.ghost { background:transparent; border:2px solid rgba(70,240,255,.5); color:#46f0ff;
+    box-shadow:0 0 14px rgba(70,240,255,.22); margin-top:12px; }
+  #history { z-index:7; }
+  .histCount { color:#ffe36e; font-weight:800; margin-bottom:12px; text-shadow:0 0 10px #ffb800; font-size:clamp(14px,4vw,18px); }
+  .histList { width:min(360px,90vw); max-height:56vh; overflow-y:auto; }
+  .histList li { gap:8px; }
+  .histList .ago { color:#8ea2d8; font-size:.82em; flex:none; min-width:56px; text-align:right; }
 </style>
 
 <div id="wrap">
@@ -79,6 +86,14 @@
     </div>
   </div>
 
+  <div id="history" class="overlay hidden">
+    <h2 style="color:#46f0ff;text-shadow:0 0 14px #0a7cff;">🌍 GLOBAL HISTORY</h2>
+    <div id="histCount" class="histCount">Loading…</div>
+    <ol id="histList" class="lbList histList"></ol>
+    <button class="btn" id="closeHist">CLOSE ✕</button>
+    <div class="hint">Live plays from players everywhere 🌐</div>
+  </div>
+
   <div id="start" class="overlay">
     <h1>NEON HIGHWAY</h1>
     <div class="sub">D R I V E &nbsp;&amp;&nbsp; S H O O T</div>
@@ -92,6 +107,7 @@
       <div class="lbTitle">🏆 LEADERBOARD</div>
       <ol id="lbListStart" class="lbList"></ol>
     </div>
+    <button class="btn ghost hidden" id="histBtnStart">🌍 GLOBAL HISTORY</button>
   </div>
 
   <div id="over" class="overlay hidden">
@@ -110,10 +126,14 @@
       <ol id="lbList" class="lbList"></ol>
     </div>
     <button class="btn" id="retryBtn">DRIVE AGAIN ↻</button>
+    <button class="btn ghost hidden" id="histBtnOver">🌍 GLOBAL HISTORY</button>
     <div class="hint">Drag / arrow keys to steer</div>
   </div>
 </div>
 
+<!-- Firebase SDK (loads on the public site; blocked/ignored in the offline play sandbox, where the game falls back to the local board) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script>
 (function () {
   const canvas = document.getElementById('game');
@@ -134,6 +154,12 @@
   const nameRow = document.getElementById('nameRow');
   const nameInput = document.getElementById('nameInput');
   const saveBtn = document.getElementById('saveBtn');
+  const historyScreen = document.getElementById('history');
+  const histListEl = document.getElementById('histList');
+  const histCountEl = document.getElementById('histCount');
+  const histBtnStart = document.getElementById('histBtnStart');
+  const histBtnOver = document.getElementById('histBtnOver');
+  const closeHistBtn = document.getElementById('closeHist');
 
   // ---------- CAR COLORS ----------
   const CAR_COLORS = {
@@ -361,10 +387,70 @@
     leaderboard.sort((a, b) => b.score - a.score);
     leaderboard = leaderboard.slice(0, LB_SIZE);
     localStorage.setItem(LB_KEY, JSON.stringify(leaderboard));
+    pushGlobalOnce(name, entry.score);   // record this run to the global history
     pendingScore = null;
     nameRow.classList.add('hidden');
     renderLeaderboard(entry);
   }
+
+  // ---------- GLOBAL HISTORY (Firebase Realtime Database) ----------
+  const firebaseConfig = {
+    apiKey: "AIzaSyDFPfWWA5tWne0hDbUZSOYnQiiyYnEpy9c",
+    authDomain: "neon-highway-35b62.firebaseapp.com",
+    databaseURL: "https://neon-highway-35b62-default-rtdb.firebaseio.com",
+    projectId: "neon-highway-35b62",
+    storageBucket: "neon-highway-35b62.firebasestorage.app",
+    messagingSenderId: "539308837265",
+    appId: "1:539308837265:web:4ef20eb3d213fab7a73230"
+  };
+  let fbOnline = false, fbScores = null, fbCount = null;
+  let histEntries = [], totalPlays = null, historyOpen = false, globalPushed = false;
+
+  function initFirebase() {
+    if (typeof firebase === 'undefined' || !firebase.initializeApp) return; // SDK blocked (sandbox) -> stay local
+    try {
+      firebase.initializeApp(firebaseConfig);
+      const db = firebase.database();
+      fbScores = db.ref('scores');
+      fbCount = db.ref('plays');
+      fbOnline = true;
+      fbScores.limitToLast(50).on('value', snap => {
+        const arr = [];
+        snap.forEach(ch => { const v = ch.val(); if (v && typeof v.score === 'number') arr.push(v); });
+        arr.reverse();                       // newest play first
+        histEntries = arr;
+        if (historyOpen) renderHistory();
+      }, () => {});
+      fbCount.on('value', snap => { totalPlays = snap.val() || 0; if (historyOpen) renderHistory(); }, () => {});
+    } catch (e) { fbOnline = false; }
+  }
+  function pushGlobalOnce(name, score) {
+    if (globalPushed || !fbOnline || !score || score <= 0) return;
+    globalPushed = true;                     // exactly one record per run
+    try {
+      fbScores.push({ name: String(name || 'Anonymous').slice(0, 12), score: Math.floor(score),
+                      ts: firebase.database.ServerValue.TIMESTAMP });
+      fbCount.transaction(n => (n || 0) + 1);
+    } catch (e) {}
+  }
+  function timeAgo(ts) {
+    if (!ts || typeof ts !== 'number') return 'just now';
+    const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+    if (s < 60) return s + 's ago';
+    const m = Math.floor(s / 60); if (m < 60) return m + 'm ago';
+    const h = Math.floor(m / 60); if (h < 24) return h + 'h ago';
+    return Math.floor(h / 24) + 'd ago';
+  }
+  function renderHistory() {
+    histCountEl.textContent = (totalPlays != null ? ('🎮 ' + totalPlays + ' plays worldwide') : 'Loading…');
+    if (histEntries.length === 0) { histListEl.innerHTML = '<li class="empty">No plays yet — be the first!</li>'; return; }
+    histListEl.innerHTML = histEntries.map(e =>
+      '<li><span class="nm">' + esc(e.name || 'Anonymous') + '</span>' +
+      '<span class="sc">' + e.score + '</span>' +
+      '<span class="ago">' + timeAgo(e.ts) + '</span></li>').join('');
+  }
+  function openHistory() { historyOpen = true; renderHistory(); historyScreen.classList.remove('hidden'); }
+  function closeHistory() { historyOpen = false; historyScreen.classList.add('hidden'); }
 
   function reset() {
     bullets = []; enemies = []; pickups = []; powers = []; ebullets = []; particles = []; floaters = [];
@@ -424,13 +510,15 @@
     document.getElementById('finalScore').textContent = score;
     document.getElementById('killLine').textContent = kills + ' enem' + (kills===1?'y':'ies') + ' destroyed';
     // leaderboard: if this run makes the board, offer a name entry
+    globalPushed = false;                    // allow one global record for this run
     if (scoreQualifies(score)) {
       pendingScore = score;
       nameInput.value = playerName;
-      nameRow.classList.remove('hidden');
+      nameRow.classList.remove('hidden');    // global push happens when they save/retry
     } else {
       pendingScore = null;
       nameRow.classList.add('hidden');
+      pushGlobalOnce(playerName || 'Anonymous', score);   // record even non-record runs
     }
     renderLeaderboard();
     hud.classList.add('hidden');
@@ -557,6 +645,11 @@
   function retry() { if (pendingScore !== null) submitScore(nameInput.value); startGame(); }
   document.getElementById('startBtn').addEventListener('click', startGame);
   document.getElementById('retryBtn').addEventListener('click', retry);
+
+  // global history buttons
+  histBtnStart.addEventListener('click', openHistory);
+  histBtnOver.addEventListener('click', openHistory);
+  closeHistBtn.addEventListener('click', closeHistory);
 
   // ---- loop ----
   let last = performance.now();
@@ -934,6 +1027,8 @@
 
   resize();
   renderLeaderboard();        // populate the start-screen leaderboard on load
+  initFirebase();             // connect the global history (no-op if SDK is blocked)
+  if (fbOnline) { histBtnStart.classList.remove('hidden'); histBtnOver.classList.remove('hidden'); }
   state = 'menu'; reset();
   requestAnimationFrame(loop);
 })();
